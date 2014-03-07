@@ -1,47 +1,17 @@
 package sky
 
 import (
-	"errors"
 	"fmt"
 	"time"
 )
 
-//------------------------------------------------------------------------------
-//
-// Typedefs
-//
-//------------------------------------------------------------------------------
-
-// An Event is a timestamped hash of data.
+// Event represents a state or action at a given point in time.
 type Event struct {
 	Timestamp time.Time
 	Data      map[string]interface{}
 }
 
-//------------------------------------------------------------------------------
-//
-// Constructor
-//
-//------------------------------------------------------------------------------
-
-func NewEvent(timestamp time.Time, data map[string]interface{}) *Event {
-	return &Event{
-		Timestamp: timestamp,
-		Data:      data,
-	}
-}
-
-//------------------------------------------------------------------------------
-//
-// Methods
-//
-//------------------------------------------------------------------------------
-
-//--------------------------------------
-// Serialization
-//--------------------------------------
-
-// Encodes an event into an untyped map.
+// Serialize encodes an event into an untyped map.
 func (e *Event) Serialize() map[string]interface{} {
 	return map[string]interface{}{
 		"timestamp": FormatTimestamp(e.Timestamp),
@@ -49,10 +19,10 @@ func (e *Event) Serialize() map[string]interface{} {
 	}
 }
 
-// Decodes an event from an untyped map.
+// Deserialize decodes an event from an untyped map.
 func (e *Event) Deserialize(obj map[string]interface{}) error {
 	if obj == nil {
-		return errors.New("sky.Event: Unable to deserialize nil.")
+		return nil
 	}
 
 	// Deserialize "timestamp".
@@ -72,7 +42,7 @@ func (e *Event) Deserialize(obj map[string]interface{}) error {
 	} else if data == nil {
 		e.Data = map[string]interface{}{}
 	} else {
-		return fmt.Errorf("sky.Event: Invalid data: %v", obj["data"])
+		return fmt.Errorf("invalid data: %v", obj["data"])
 	}
 
 	return nil

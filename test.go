@@ -1,35 +1,26 @@
 package sky
 
 import (
-	"fmt"
-	"os"
 	"testing"
 )
 
-const (
-	testTableName = "sky-go-integration"
-)
+const testTableName = "sky-go-integration"
 
-// Setup the test environment.
-func run(t *testing.T, f func(Client, Table)) {
-	client := NewClientEx("localhost", 8589)
-	if !client.Ping() {
+// Executes a function within the context of a client and existing table.
+func run(t *testing.T, f func(*Client, *Table)) {
+	c := &Client{Host: "localhost:8589"}
+	if !c.Ping() {
 		t.Fatalf("Server is not running")
 	}
-	client.DeleteTable(NewTable(testTableName, nil))
+	c.DeleteTable(testTableName)
 
 	// Create the table.
-	table := NewTable(testTableName, nil)
-	err := client.CreateTable(table)
+	table := &Table{Name: testTableName}
+	err := c.CreateTable(table)
 	if err != nil {
 		t.Fatalf("Unable to setup test table: %v", err)
 	}
+	defer c.DeleteTable(testTableName)
 
-	f(client, table)
-
-	client.DeleteTable(NewTable(testTableName, nil))
-}
-
-func warn(msg string, v ...interface{}) {
-	fmt.Fprintf(os.Stderr, msg+"\n", v...)
+	f(c, table)
 }

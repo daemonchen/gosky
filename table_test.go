@@ -2,159 +2,130 @@ package sky
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
-//--------------------------------------
-// Property API
-//--------------------------------------
-
 // Ensure that we can create and delete properties.
-func TestCreateDeleteProperty(t *testing.T) {
-	run(t, func(client Client, table Table) {
-		property := NewProperty("purchase_price", true, String)
+func TestTableCreateProperty(t *testing.T) {
+	run(t, func(c *Client, table *Table) {
+		p := &Property{Name: "purchase_price", Transient: true, DataType: String}
 
 		// Create the property.
-		err := table.CreateProperty(property)
-		if err != nil {
-			t.Fatalf("Unable to create property: %v (%v)", property, err)
-		}
+		err := table.CreateProperty(p)
+		assert.NoError(t, err)
 
 		// Delete the property.
-		err = table.DeleteProperty(property)
-		if err != nil {
-			t.Fatalf("Unable to delete property: %v (%v)", property, err)
-		}
+		err = table.DeleteProperty("purchase_price")
+		assert.NoError(t, err)
 	})
 }
 
 // Ensure that we can get a single property.
-func TestGetProperties(t *testing.T) {
-	run(t, func(client Client, table Table) {
-		table.CreateProperty(NewProperty("gender", false, Factor))
-		table.CreateProperty(NewProperty("name", false, String))
-		table.CreateProperty(NewProperty("myNum", true, Integer))
+func TestTableProperties(t *testing.T) {
+	run(t, func(c *Client, table *Table) {
+		table.CreateProperty(&Property{Name: "gender", Transient: false, DataType: Factor})
+		table.CreateProperty(&Property{Name: "name", Transient: false, DataType: String})
+		table.CreateProperty(&Property{Name: "myNum", Transient: true, DataType: Integer})
 
 		// Get a single property.
-		p, err := table.GetProperty("gender")
-		if err != nil || p == nil || p.Id != 1 || p.Name != "gender" || p.Transient || p.DataType != Factor {
-			t.Fatalf("Unable to get property: %v (%v)", p, err)
+		p, err := table.Property("gender")
+		assert.NoError(t, err)
+		if assert.NotNil(t, p) {
+			assert.Equal(t, p.Name, "gender")
+			assert.Equal(t, p.Transient, false)
+			assert.Equal(t, p.DataType, Factor)
 		}
 
-		// Update property.
-		table.UpdateProperty("gender", NewProperty("gender2", true, Integer))
+		// Rename a property.
+		err = table.RenameProperty("gender", "gender2")
+		assert.NoError(t, err)
 
 		// Get all properties.
-		properties, err := table.GetProperties()
-		if err != nil || len(properties) != 3 {
-			t.Fatalf("Unable to get properties: %d (%v)", len(properties), err)
-		}
-		p = properties[0]
-		if p.Id != -1 || p.Name != "myNum" || !p.Transient || p.DataType != Integer {
-			t.Fatalf("Unable to get properties(0): %v (%v)", p, err)
-		}
-		p = properties[1]
-		if p.Id != 1 || p.Name != "gender2" || p.Transient || p.DataType != Factor {
-			t.Fatalf("Unable to get properties(1): %v (%v)", p, err)
-		}
-		p = properties[2]
-		if p.Id != 2 || p.Name != "name" || p.Transient || p.DataType != String {
-			t.Fatalf("Unable to get properties(2): %v (%v)", p, err)
+		properties, err := table.Properties()
+		assert.NoError(t, err)
+		if assert.Equal(t, len(properties), 3) {
+			assert.Equal(t, properties[0].Name, "myNum")
+			assert.Equal(t, properties[0].Transient, true)
+			assert.Equal(t, properties[0].DataType, Integer)
+
+			assert.Equal(t, properties[1].Name, "gender2")
+			assert.Equal(t, properties[1].Transient, false)
+			assert.Equal(t, properties[1].DataType, Factor)
+
+			assert.Equal(t, properties[2].Name, "name")
+			assert.Equal(t, properties[2].Transient, false)
+			assert.Equal(t, properties[2].DataType, String)
 		}
 	})
 }
 
-//--------------------------------------
-// Event API
-//--------------------------------------
-
 // Ensure that we can insert an event and merge an update into it.
-func TestInsertEvent(t *testing.T) {
-	run(t, func(client Client, table Table) {
+func TestTableInsertEvent(t *testing.T) {
+	run(t, func(c *Client, table *Table) {
 		timestamp, _ := ParseTimestamp("1970-01-01T00:00:01.5Z")
-		table.CreateProperty(NewProperty("p0", false, String))
-		table.CreateProperty(NewProperty("t0", true, Integer))
-		e0 := NewEvent(timestamp, map[string]interface{}{"p0": "foo", "t0": 10})
-		e1 := NewEvent(timestamp, map[string]interface{}{"t0": 20})
+		table.CreateProperty(&Property{Name: "p0", Transient: false, DataType: String})
+		table.CreateProperty(&Property{Name: "t0", Transient: true, DataType: Integer})
+		e0 := &Event{timestamp, map[string]interface{}{"p0": "foo", "t0": 10}}
+		e1 := &Event{timestamp, map[string]interface{}{"t0": 20}}
 
 		// Add the event.
-		err := table.AddEvent("o0", e0, Merge)
-		if err != nil {
-			t.Fatalf("Unable to merge event: %v (%v)", e0, err)
-		}
+		err := table.InsertEvent("o0", e0)
+		assert.NoError(t, err)
 
-		// Merge the event.
-		err = table.AddEvent("o0", e1, Merge)
-		if err != nil {
-			t.Fatalf("Unable to replace event: %v (%v)", e1, err)
-		}
+		// Add another event.
+		err = table.InsertEvent("o0", e1)
+		assert.NoError(t, err)
 
-		// Get the event to verify.
-		event, err := table.GetEvent("o0", timestamp)
-		if err != nil || event.Data["t0"] != float64(20) || event.Data["p0"] != "foo" {
-			t.Fatalf("Incorrect merged event: %v (%v)", event, err)
+		// Check the result.
+		e, err := table.Event("o0", timestamp)
+		assert.NoError(t, err)
+		if assert.NotNil(t, e) {
+			assert.Equal(t, e.Data["t0"], float64(20))
+			assert.Equal(t, e.Data["p0"], "foo")
 		}
 	})
 }
 
 // Ensure that we can delete an event.
-func TestDeleteEvent(t *testing.T) {
-	run(t, func(client Client, table Table) {
+func TestTableDeleteEvent(t *testing.T) {
+	run(t, func(c *Client, table *Table) {
 		timestamp, _ := ParseTimestamp("1970-01-01T00:00:01.5Z")
-		table.CreateProperty(NewProperty("p0", false, String))
-		table.CreateProperty(NewProperty("t0", true, Integer))
-		e0 := NewEvent(timestamp, map[string]interface{}{"p0": "foo", "t0": 10})
+		table.CreateProperty(&Property{Name: "p0", Transient: false, DataType: String})
+		table.CreateProperty(&Property{Name: "t0", Transient: true, DataType: Integer})
+		e0 := &Event{timestamp, map[string]interface{}{"p0": "foo", "t0": 10}}
 
 		// Add the event.
-		err := table.AddEvent("o0", e0, Merge)
-		if err != nil {
-			t.Fatalf("Unable to merge event: %v (%v)", e0, err)
-		}
+		err := table.InsertEvent("o0", e0)
+		assert.NoError(t, err)
 
 		// Delete the event.
-		err = table.DeleteEvent("o0", e0)
-		if err != nil {
-			t.Fatalf("Unable to delete event: %v (%v)", e0, err)
-		}
+		err = table.DeleteEvent("o0", timestamp)
+		assert.NoError(t, err)
 
 		// Get the event to verify.
-		event, err := table.GetEvent("o0", timestamp)
-		if err != nil || event.Data["t0"] != nil || event.Data["p0"] != nil {
-			t.Fatalf("Incorrect deleted event: %v (%v)", event, err)
-		}
+		e, err := table.Event("o0", timestamp)
+		assert.NoError(t, err)
+		assert.Nil(t, e)
 	})
 }
 
-//--------------------------------------
-// Query API
-//--------------------------------------
-
 // Ensure that we can replace an event into another one.
-func TestSimpleCountQuery(t *testing.T) {
-	run(t, func(client Client, table Table) {
-		table.CreateProperty(NewProperty("action", false, Factor))
+func TestTableQuery(t *testing.T) {
+	run(t, func(c *Client, table *Table) {
+		table.CreateProperty(&Property{Name: "action", Transient: false, DataType: Factor})
 		t0, _ := ParseTimestamp("1970-01-01T00:00:00Z")
 		t1, _ := ParseTimestamp("1970-01-01T00:00:01Z")
 		t2, _ := ParseTimestamp("1970-01-01T00:00:01.5Z")
-		table.AddEvent("o0", NewEvent(t0, map[string]interface{}{"action": "A0"}), Replace)
-		table.AddEvent("o0", NewEvent(t1, map[string]interface{}{"action": "A1"}), Replace)
-		table.AddEvent("o0", NewEvent(t2, map[string]interface{}{"action": "A2"}), Replace)
+		table.InsertEvent("o0", &Event{t0, map[string]interface{}{"action": "A0"}})
+		table.InsertEvent("o0", &Event{t1, map[string]interface{}{"action": "A1"}})
+		table.InsertEvent("o0", &Event{t2, map[string]interface{}{"action": "A2"}})
 
 		// Run a simple count query.
-		results, err := table.RawQuery(map[string]interface{}{
-			"steps": []map[string]interface{}{
-				map[string]interface{}{
-					"type": "selection",
-					"fields": []map[string]interface{}{
-						map[string]interface{}{
-							"name":       "count",
-							"expression": "count()",
-						},
-					},
-				},
-			},
-		})
-		if err != nil || results["count"] != float64(3) {
-			t.Fatalf("Query failed: %v (%v)", results, err)
+		results, err := table.Query("SELECT count()")
+		assert.NoError(t, err)
+		if assert.NotNil(t, results) {
+			assert.Equal(t, results["count"], float64(3))
 		}
 	})
 }

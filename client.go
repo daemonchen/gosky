@@ -5,121 +5,43 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
+	"net/url"
+	"os"
+	"path"
 	"strings"
 )
 
 const (
-	DefaultPort = 8585
+	// Version is the Sky version this library is meant to work with.
+	Version = "0.4.0"
+
+	// DefaultHost is the host if no host is set on the client.
+	DefaultHost = "localhost:8585"
 )
 
-// A Client is what communicates with the server.
-type Client interface {
-	Host() string
-	SetHost(host string)
-
-	Port() uint
-	SetPort(port uint)
-
-	// Retrieves a single table from the server.
-	GetTable(name string) (Table, error)
-
-	// Retrieves a list of all tables on the server.
-	GetTables() ([]Table, error)
-
-	// Creates a table on the server.
-	CreateTable(table Table) error
-
-	// Deletes a table on the server.
-	DeleteTable(table Table) error
-
-	// Opens a table agnostic event stream to the server.
-	Stream() (*EventStream, error)
-
-	// Checks if the server is currently running and available.
-	Ping() bool
-
-	// Sends and receives raw data sent to a URL path.
-	Send(method string, path string, data interface{}, ret interface{}) error
-
-	// Constructs a URL based on the client's host, port and a given path.
-	URL(path string) string
-
-	// The HTTP client used by the client.
-	HTTPClient() *http.Client
-
-	GetHost() string
-	GetPort() uint
-}
-
-type client struct {
-	host       string
-	port       uint
-	httpClient *http.Client
-}
-
-func NewClient(host string) Client {
-	return &client{
-		host:       host,
-		port:       DefaultPort,
-		httpClient: &http.Client{},
-	}
-}
-
-func NewClientEx(host string, port uint) Client {
-	return &client{
-		host:       host,
-		port:       port,
-		httpClient: &http.Client{},
-	}
-}
-
-// Host retrieves the current host.
-func (c *client) Host() string {
-	return c.host
-}
-
-// SetHost sets the current host.
-func (c *client) SetHost(host string) {
-	c.host = host
-}
-
-// Port retrieves the current port.
-func (c *client) Port() uint {
-	return c.port
-}
-
-// SetPort sets the current port.
-func (c *client) SetPort(port uint) {
-	c.port = port
-}
-
-// The HTTP client.
-func (c *client) HTTPClient() *http.Client {
-	return c.httpClient
-}
-
-func (c *client) GetHost() string {
-	return c.host
-}
-
-func (c *client) GetPort() uint {
-	return c.port
+// Client represents the client interface to the Sky server.
+type Client struct {
+	HTTPClient http.Client
+	Host       string
 }
 
 // Constructs a URL based on the client's host, port and a given path.
-func (c *client) URL(path string) string {
-	return fmt.Sprintf("http://%s:%d%s", c.Host(), c.Port(), path)
+func (c *Client) URL(path string) *url.URL {
+	return &url.URL{Scheme: "http", Host: c.Host, Path: path}
 }
 
-// Sends low-level data to and from the server.
-func (c *client) Send(method string, path string, data interface{}, ret interface{}) error {
+// Send sends low-level data to and from the server.
+func (c *Client) Send(method string, path string, data interface{}, ret interface{}) error {
 	url := c.URL(path)
 
 	// Convert the data to JSON.
 	var err error
 	var body []byte
-	if data != nil {
+	if str, ok := data.(string); ok {
+		body = []byte(str)
+	} else if data != nil {
 		body, err = json.Marshal(data)
 		if err != nil {
 			return err
@@ -127,14 +49,18 @@ func (c *client) Send(method string, path string, data interface{}, ret interfac
 	}
 
 	// Create the request object.
-	req, err := http.NewRequest(method, url, strings.NewReader(string(body)))
+	req, err := http.NewRequest(method, url.String(), strings.NewReader(string(body)))
 	if err != nil {
 		return err
 	}
-	req.Header.Add("Content-Type", "application/json")
+	if _, ok := data.(string); ok {
+		req.Header.Add("Content-Type", "text/plain")
+	} else {
+		req.Header.Add("Content-Type", "application/json")
+	}
 
 	// Send the request to the server.
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -142,12 +68,12 @@ func (c *client) Send(method string, path string, data interface{}, ret interfac
 
 	// If we have a return object then deserialize to it.
 	if resp.StatusCode != http.StatusOK {
-		h := make(map[string]interface{})
-		err := json.NewDecoder(resp.Body).Decode(h)
-		if message, ok := h["message"].(string); (err == nil || err == io.EOF) && ok {
-			return NewError(message)
+		var m message
+		b, _ := ioutil.ReadAll(resp.Body)
+		if json.Unmarshal(b, &m); m.Message != "" {
+			return errors.New(m.Message)
 		} else {
-			return NewError(fmt.Sprintf("sky.Error: \"%s %s\" [%d]", method, url, resp.StatusCode))
+			return fmt.Errorf("%d error: %s %s", resp.StatusCode, method, url.String())
 		}
 	}
 
@@ -162,53 +88,63 @@ func (c *client) Send(method string, path string, data interface{}, ret interfac
 	return nil
 }
 
-func (c *client) GetTable(name string) (Table, error) {
+// Table retrieves a reference to a given table.
+func (c *Client) Table(name string) (*Table, error) {
 	if name == "" {
-		return nil, errors.New("Table name required")
+		return nil, ErrTableNameRequired
 	}
-	table := NewTable("", c)
+	table := &Table{Client: c}
 	if err := c.Send("GET", fmt.Sprintf("/tables/%s", name), nil, table); err != nil {
 		return nil, err
 	}
 	return table, nil
 }
 
-func (c *client) GetTables() ([]Table, error) {
-	// Retrieve an array of table implementations.
-	tables := make([]*table, 0)
+// Tables retrieves a list of all table on the server.
+func (c *Client) Tables() ([]*Table, error) {
+	tables := make([]*Table, 0)
 	if err := c.Send("GET", "/tables", nil, &tables); err != nil {
 		return nil, err
 	}
-
-	// Convert to an array of table interfaces.
-	tmp := make([]Table, 0)
 	for _, t := range tables {
-		tmp = append(tmp, t)
+		t.Client = c
 	}
-	return tmp, nil
+	return tables, nil
 }
 
-func (c *client) CreateTable(table Table) error {
-	if table == nil {
-		return errors.New("Table required")
+func (c *Client) CreateTable(t *Table) error {
+	if t == nil {
+		return ErrTableRequired
 	}
-	table.SetClient(c)
-	return c.Send("POST", "/tables", table, table)
+	t.Client = c
+	return c.Send("POST", "/tables", t, t)
 }
 
-func (c *client) DeleteTable(table Table) error {
-	if table == nil {
-		return errors.New("Table required")
+func (c *Client) DeleteTable(name string) error {
+	if name == "" {
+		return ErrTableNameRequired
 	}
-	table.SetClient(c)
-	return c.Send("DELETE", fmt.Sprintf("/tables/%s", table.Name()), nil, nil)
+	return c.Send("DELETE", path.Join("/tables", name), nil, nil)
 }
 
-func (c *client) Ping() bool {
+func (c *Client) Ping() bool {
 	err := c.Send("GET", "/ping", nil, nil)
-	return err == nil
+	return (err == nil)
 }
 
-func (c *client) Stream() (*EventStream, error) {
+func (c *Client) Stream() (*EventStream, error) {
 	return NewEventStream(c)
+}
+
+func warn(v ...interface{}) {
+	fmt.Fprintln(os.Stderr, v...)
+}
+
+func warnf(msg string, v ...interface{}) {
+	fmt.Fprintf(os.Stderr, msg+"\n", v...)
+}
+
+// message is a generic return message from Sky that can occur on error.
+type message struct {
+	Message string `json:"message"`
 }

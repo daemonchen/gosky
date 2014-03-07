@@ -3,44 +3,41 @@ package sky
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
-//--------------------------------------
-// Table API
-//--------------------------------------
-
 // Ensure that we can retrieve a single table.
-func TestGetTable(t *testing.T) {
-	run(t, func(client Client, _ Table) {
-		table, err := client.GetTable("sky-go-integration")
-		if err != nil || table == nil || table.Name() != "sky-go-integration" {
-			t.Fatalf("Unable to get table: %v (%v)", table, err)
+func TestClientTable(t *testing.T) {
+	run(t, func(c *Client, _ *Table) {
+		table, err := c.Table("sky-go-integration")
+		assert.NoError(t, err)
+		if assert.NotNil(t, table) {
+			assert.Equal(t, table.Name, "sky-go-integration")
 		}
 	})
 }
 
 // Ensure that we retrieve a list of all tables.
-func TestGetTables(t *testing.T) {
-	run(t, func(client Client, _ Table) {
-		tables, err := client.GetTables()
-		if err != nil || len(tables) == 0 {
-			t.Fatalf("Unable to get tables: %d (%v)", tables, err)
-		}
+func TestClientTables(t *testing.T) {
+	run(t, func(c *Client, _ *Table) {
+		tables, err := c.Tables()
+		assert.NoError(t, err)
+		assert.NotEqual(t, len(tables), 0)
 	})
 }
 
-func TestEventStream(t *testing.T) {
-	run(t, func(client Client, table Table) {
-		stream, err := client.Stream()
+func TestClientEventStream(t *testing.T) {
+	run(t, func(c *Client, table *Table) {
+		stream, err := c.Stream()
 		if err != nil {
 			t.Fatalf("Failed to create event stream: (%v)", err)
 		}
-		var data map[string]interface{}
 		now := time.Now()
 		for i := 0; i < 10; i++ {
 			timestamp := now.Add(time.Duration(i) * time.Hour)
-			event := NewEvent(timestamp, data)
-			err = stream.AddEvent(table, "xyz", event)
+			event := &Event{timestamp, make(map[string]interface{})}
+			err = stream.InsertEvent(table, "xyz", event)
 			if err != nil {
 				t.Fatalf("Failed to create event #%d: %v (%v)", i, event, err)
 			}
@@ -49,25 +46,24 @@ func TestEventStream(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Closing stream failed: (%v)", err)
 		}
-		events, err := table.GetEvents("xyz")
+		events, err := table.Events("xyz")
 		if err != nil || len(events) != 10 {
 			t.Fatalf("Failed to get 10 events back: %d events, (%v)", len(events), err)
 		}
 	})
 }
 
-func TestTableEventStream(t *testing.T) {
-	run(t, func(client Client, table Table) {
+func TestClientTableEventStream(t *testing.T) {
+	run(t, func(c *Client, table *Table) {
 		stream, err := table.Stream()
 		if err != nil {
 			t.Fatalf("Failed to create event stream: (%v)", err)
 		}
-		var data map[string]interface{}
 		now := time.Now()
 		for i := 0; i < 10; i++ {
 			timestamp := now.Add(time.Duration(i) * time.Hour)
-			event := NewEvent(timestamp, data)
-			err = stream.AddEvent("xyz", event)
+			event := &Event{timestamp, make(map[string]interface{})}
+			err = stream.InsertEvent("xyz", event)
 			if err != nil {
 				t.Fatalf("Failed to create event #%d: %v (%v)", i, event, err)
 			}
@@ -76,7 +72,7 @@ func TestTableEventStream(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Closing stream failed: (%v)", err)
 		}
-		events, err := table.GetEvents("xyz")
+		events, err := table.Events("xyz")
 		if err != nil || len(events) != 10 {
 			t.Fatalf("Failed to get 10 events back: %d events, (%v)", len(events), err)
 		}

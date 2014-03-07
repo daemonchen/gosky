@@ -10,16 +10,9 @@ import (
 	"strings"
 )
 
-//------------------------------------------------------------------------------
-//
-// Typedefs
-//
-//------------------------------------------------------------------------------
-
-// An event stream maintains an open connection to the database to send events
-// in bulk. This is the base stream type.
+// Stream maintains an open connection to the database to send events in bulk.
 type Stream struct {
-	client  Client
+	Client  *Client
 	header  []byte
 	encoder *json.Encoder
 	chunker *chunkWriter
@@ -35,40 +28,24 @@ type EventStream struct {
 // TableEventStream is a stream to a specific table.
 type TableEventStream struct {
 	*Stream
-	table Table
+	table *Table
 }
 
-//------------------------------------------------------------------------------
-//
-// Constructor
-//
-//------------------------------------------------------------------------------
-
-func NewTableEventStream(c Client, table Table) (*TableEventStream, error) {
-	header := fmt.Sprintf("PATCH /tables/%s/events HTTP/1.0\r\nHost: %s\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n", table.Name(), c.GetHost())
-	s := &TableEventStream{&Stream{client: c, header: []byte(header)}, table}
+func NewTableEventStream(c *Client, t *Table) (*TableEventStream, error) {
+	header := fmt.Sprintf("PATCH /tables/%s/events HTTP/1.0\r\nHost: %s\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n", t.Name, c.Host)
+	s := &TableEventStream{&Stream{Client: c, header: []byte(header)}, t}
 	return s, s.Reconnect()
 }
 
-func NewEventStream(c Client) (*EventStream, error) {
-	header := fmt.Sprintf("PATCH /events HTTP/1.0\r\nHost: %s\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n", c.GetHost())
-	s := &EventStream{&Stream{client: c, header: []byte(header)}}
+func NewEventStream(c *Client) (*EventStream, error) {
+	header := fmt.Sprintf("PATCH /events HTTP/1.0\r\nHost: %s\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n", c.Host)
+	s := &EventStream{&Stream{Client: c, header: []byte(header)}}
 	return s, s.Reconnect()
 }
 
-//------------------------------------------------------------------------------
-//
-// Methods
-//
-//------------------------------------------------------------------------------
-
-//--------------------------------------
-// Event API
-//--------------------------------------
-
-// Adds an event to an object.
-func (s *TableEventStream) AddEvent(objectId string, event *Event) error {
-	if objectId == "" {
+// AddEvent sends an event through the stream.
+func (s *TableEventStream) InsertEvent(id string, event *Event) error {
+	if id == "" {
 		return errors.New("Object identifier required")
 	}
 	if event == nil {
@@ -77,19 +54,19 @@ func (s *TableEventStream) AddEvent(objectId string, event *Event) error {
 
 	// Attach the object identifier at the root of the event.
 	data := event.Serialize()
-	data["id"] = objectId
+	data["id"] = id
 
 	// Encode the serialized data into the stream.
 	return s.encoder.Encode(data)
 }
 
-// Adds an event to an object.
-func (s *EventStream) AddEvent(table Table, objectId string, event *Event) error {
-	if objectId == "" {
+// InsertEvent sends an event through the stream.
+func (s *EventStream) InsertEvent(t *Table, id string, event *Event) error {
+	if id == "" {
 		return errors.New("Object identifier required")
 	}
-	if table == nil {
-		return errors.New("Table required")
+	if t == nil {
+		return ErrTableRequired
 	}
 	if event == nil {
 		return errors.New("Event required")
@@ -97,19 +74,19 @@ func (s *EventStream) AddEvent(table Table, objectId string, event *Event) error
 
 	// Attach the object identifier at the root of the event.
 	data := event.Serialize()
-	data["id"] = objectId
-	data["table"] = table.Name()
+	data["id"] = id
+	data["table"] = t.Name
 
 	// Encode the serialized data into the stream.
 	return s.encoder.Encode(data)
 }
 
-// Send any buffered events to the server
+// Flush sends any buffered events to the server.
 func (s *Stream) Flush() error {
 	return s.buffer.Flush()
 }
 
-// Close the event stream
+// Close closes the event stream.
 func (s *Stream) Close() error {
 	defer s.conn.Close()
 
@@ -135,7 +112,7 @@ func (s *Stream) Close() error {
 	return errors.New(status)
 }
 
-// Attempt to reconnect the event stream with the server
+// Reconnect attempts to reconnect the event stream with the server.
 func (s *Stream) Reconnect() error {
 
 	// Close the existing connection
@@ -145,8 +122,7 @@ func (s *Stream) Reconnect() error {
 	}
 
 	// Open new connection
-	address := fmt.Sprintf("%s:%d", s.client.GetHost(), s.client.GetPort())
-	conn, err := net.Dial("tcp", address)
+	conn, err := net.Dial("tcp", s.Client.Host)
 	if err != nil {
 		return err
 	}

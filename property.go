@@ -1,11 +1,5 @@
 package sky
 
-//------------------------------------------------------------------------------
-//
-// Constants
-//
-//------------------------------------------------------------------------------
-
 const (
 	String  = "string"
 	Integer = "integer"
@@ -14,30 +8,9 @@ const (
 	Factor  = "factor"
 )
 
-//------------------------------------------------------------------------------
-//
-// Typedefs
-//
-//------------------------------------------------------------------------------
-
-// A Property is part of the table's schema.
+// Property represents a field in a Sky table.
 type Property struct {
-	Id        int    `json:"id"`
 	Name      string `json:"name"`
 	Transient bool   `json:"transient"`
 	DataType  string `json:"dataType"`
-}
-
-//------------------------------------------------------------------------------
-//
-// Constructor
-//
-//------------------------------------------------------------------------------
-
-func NewProperty(name string, transient bool, dataType string) *Property {
-	return &Property{
-		Name:      name,
-		Transient: transient,
-		DataType:  dataType,
-	}
 }
