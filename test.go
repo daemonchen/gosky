@@ -13,7 +13,7 @@ func run(t *testing.T, f func(*Client, *Table)) {
 	if !c.Ping() {
 		t.Fatalf("Server is not running")
 	}
-	// c.DeleteTable(testTableName)
+	c.DeleteTable(testTableName)
 
 	// Create the table.
 	table := &Table{Name: testTableName}

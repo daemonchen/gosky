@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 )
 
 // Stream maintains an open connection to the database to send events in bulk.
@@ -57,6 +56,7 @@ func (s *TableEventStream) InsertEvent(id string, event *Event) error {
 	data["id"] = id
 
 	// Encode the serialized data into the stream.
+	s.table.InsertEvent(id, event)
 	return s.encoder.Encode(data)
 }
 
@@ -78,6 +78,7 @@ func (s *EventStream) InsertEvent(t *Table, id string, event *Event) error {
 	data["table"] = t.Name
 
 	// Encode the serialized data into the stream.
+	t.InsertEvent(id, event)
 	return s.encoder.Encode(data)
 }
 
@@ -96,20 +97,12 @@ func (s *Stream) Close() error {
 	}
 
 	// Write an empty chunk
-	if _, err := s.chunker.Write([]byte{}); err != nil {
-		return err
-	}
+	// if _, err := s.chunker.Write([]byte{}); err != nil {
+	// 	return err
+	// }
 
 	// Check server response status
-	reader := bufio.NewReader(s.conn)
-	status, err := reader.ReadString('\r')
-	if err != nil {
-		return err
-	}
-	if strings.HasPrefix(status, "HTTP/1.0 200") {
-		return nil
-	}
-	return errors.New(status)
+	return nil
 }
 
 // Reconnect attempts to reconnect the event stream with the server.
